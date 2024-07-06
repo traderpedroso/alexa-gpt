@@ -4,12 +4,16 @@ from ask_sdk_core.skill_builder import SkillBuilder
 from ask_sdk_core.handler_input import HandlerInput
 from ask_sdk_model import Response
 import ask_sdk_core.utils as ask_utils
-import requests
+import openai
 import logging
-import json
 
-# Set your OpenAI API key
-api_key = "YOUR_API_KEY"
+
+instructions = """Sou um asistente pessoal"""
+mode = "S.P.L"
+
+# Set your OpenAI API key and base URL
+openai.api_key = "YOUR_API_KEY"
+openai.api_base = "https://api.sostrader.com.br/v1"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -19,14 +23,10 @@ class LaunchRequestHandler(AbstractRequestHandler):
     """Handler for Skill Launch."""
 
     def can_handle(self, handler_input):
-        # type: (HandlerInput) -> bool
-
         return ask_utils.is_request_type("LaunchRequest")(handler_input)
 
     def handle(self, handler_input):
-        # type: (HandlerInput) -> Response
-        speak_output = "Chat G.P.T. mode ativado"
-
+        speak_output = f"modo {mode} ativado"
         session_attr = handler_input.attributes_manager.session_attributes
         session_attr["chat_history"] = []
 
@@ -41,13 +41,10 @@ class GptQueryIntentHandler(AbstractRequestHandler):
     """Handler for Gpt Query Intent."""
 
     def can_handle(self, handler_input):
-        # type: (HandlerInput) -> bool
         return ask_utils.is_intent_name("GptQueryIntent")(handler_input)
 
     def handle(self, handler_input):
-        # type: (HandlerInput) -> Response
         query = handler_input.request_envelope.request.intent.slots["query"].value
-
         session_attr = handler_input.attributes_manager.session_attributes
         if "chat_history" not in session_attr:
             session_attr["chat_history"] = []
@@ -56,7 +53,7 @@ class GptQueryIntentHandler(AbstractRequestHandler):
 
         return (
             handler_input.response_builder.speak(response)
-            .ask("Any other questions?")
+            .ask("Você pode fazer uma nova pergunta ou falar: sair.")
             .response
         )
 
@@ -65,14 +62,11 @@ class CatchAllExceptionHandler(AbstractExceptionHandler):
     """Generic error handling to capture any syntax or routing errors."""
 
     def can_handle(self, handler_input, exception):
-        # type: (HandlerInput, Exception) -> bool
         return True
 
     def handle(self, handler_input, exception):
-        # type: (HandlerInput, Exception) -> Response
         logger.error(exception, exc_info=True)
-
-        speak_output = "Sorry, I had trouble doing what you asked. Please try again."
+        speak_output = "Desculpe, tive problemas ao processar seu pedido. Por favor, tente novamente."
 
         return (
             handler_input.response_builder.speak(speak_output)
@@ -85,26 +79,22 @@ class CancelOrStopIntentHandler(AbstractRequestHandler):
     """Single handler for Cancel and Stop Intent."""
 
     def can_handle(self, handler_input):
-        # type: (HandlerInput) -> bool
         return ask_utils.is_intent_name("AMAZON.CancelIntent")(
             handler_input
         ) or ask_utils.is_intent_name("AMAZON.StopIntent")(handler_input)
 
     def handle(self, handler_input):
-        # type: (HandlerInput) -> Response
-        speak_output = "Leaving Chat G.P.T. mode"
+        speak_output = f"Saindo do modo {mode}"
 
         return handler_input.response_builder.speak(speak_output).response
 
 
 def generate_gpt_response(chat_history, new_question):
     """Generates a GPT response to a new question"""
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    url = "https://api.sostrader.com.br/v1/chat/completions"
     messages = [
         {
             "role": "system",
-            "content": "You are a helpful assistant. Answer in 50 words or less.",
+            "content": f"{instructions}",
         }
     ]
     for question, answer in chat_history[-10:]:
@@ -112,21 +102,17 @@ def generate_gpt_response(chat_history, new_question):
         messages.append({"role": "assistant", "content": answer})
     messages.append({"role": "user", "content": new_question})
 
-    data = {
-        "model": "gpt-4o",
-        "messages": messages,
-        "max_tokens": 8000,
-        "temperature": 0.7,
-    }
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(data))
-        response_data = response.json()
-        if response.ok:
-            return response_data["choices"][0]["message"]["content"]
-        else:
-            return f"Error {response.status_code}: {response_data['error']['message']}"
+        response = openai.ChatCompletion.create(
+            model="gpt-4o", messages=messages, max_tokens=8000, temperature=0.7
+        )
+        return response.choices[0].message["content"]
+    except openai.error.OpenAIError as e:
+        logger.error(f"Erro ao gerar resposta: {str(e)}")
+        return f"Erro ao gerar resposta: {str(e)}"
     except Exception as e:
-        return f"Error generating response: {str(e)}"
+        logger.error(f"Erro inesperado: {str(e)}")
+        return f"Erro inesperado: {str(e)}"
 
 
 sb = SkillBuilder()
