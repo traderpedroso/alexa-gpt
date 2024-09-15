@@ -104,7 +104,10 @@ def generate_gpt_response(chat_history, new_question):
 
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4o", messages=messages, max_tokens=8000, temperature=0.7
+            model="llama-3.1-70b-versatile",
+            messages=messages,
+            max_tokens=8000,
+            temperature=0.7,
         )
         return response.choices[0].message["content"]
     except openai.error.OpenAIError as e:
